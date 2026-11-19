@@ -1,0 +1,32 @@
+--- a/src/LIVMapper.cpp
++++ b/src/LIVMapper.cpp
+@@ -1115,8 +1115,27 @@
+       mtx_buffer.unlock();
+       sig_buffer.notify_all();
+ 
+-      *(meas.pcl_proc_cur) = *(meas.pcl_proc_next);
+-      PointCloudXYZI().swap(*meas.pcl_proc_next);
++      // pcl_proc_next offsets are relative to the previous image time,
++      // including during IMU warmup when last_lio_update_time has not advanced.
++      const double carry_origin = last_lio_vio_flg == VIO
++          ? meas.measures.back().vio_time : meas.last_lio_update_time;
++      PointCloudXYZI carried;
++      carried.swap(*meas.pcl_proc_next);
++      meas.pcl_proc_cur->clear();
++      for (auto point : carried.points)
++      {
++        const double point_time = carry_origin + point.curvature / 1000.0;
++        if (point_time < m.lio_time)
++        {
++          point.curvature = (point_time - meas.last_lio_update_time) * 1000.0;
++          meas.pcl_proc_cur->points.push_back(point);
++        }
++        else
++        {
++          point.curvature = (point_time - m.lio_time) * 1000.0;
++          meas.pcl_proc_next->points.push_back(point);
++        }
++      }
+ 
+       int lid_frame_num = lid_raw_data_buffer.size();
+       int max_size = meas.pcl_proc_cur->size() + 24000 * lid_frame_num;

@@ -1,0 +1,53 @@
+--- a/src/vio.cpp
++++ b/src/vio.cpp
+@@ -784,6 +784,7 @@
+ 
+ void VIOManager::computeJacobianAndUpdateEKF(cv::Mat img)
+ {
++  G.setZero();
+   if (total_points == 0) return;
+   
+   compute_jacobian_time = update_ekf_time = 0.0;
+@@ -1537,6 +1538,9 @@
+   for (int iteration = 0; iteration < max_iterations; iteration++)
+   {
+     double t1 = omp_get_wtime();
++    // Rejected features must not retain rows from a previous iteration.
++    z.setZero();
++    H_sub.setZero();
+ 
+     M3D Rwi(state->rot_end);
+     V3D Pwi(state->pos_end);
+@@ -1571,8 +1575,15 @@
+ 
+       if (pt == nullptr) continue;
+ 
++      visual_submap->errors[i] = std::numeric_limits<float>::infinity();
+       V3D pf = Rcw * pt->pos_ + Pcw;
++      if (pf.z() <= 0.0) continue;
+       V2D pc = cam->world2cam(pf);
++      // The gradient stencil extends one scaled pixel beyond the patch.
++      const int lower = (patch_size_half + 1) * scale;
++      const int upper = (patch_size - patch_size_half + 1) * scale;
++      if (!pc.allFinite() || pc.x() < lower || pc.y() < lower ||
++          pc.x() >= width - upper || pc.y() >= height - upper) continue;
+ 
+       computeProjectionJacobian(pf, Jdpi);
+       M3D p_hat;
+@@ -1582,6 +1593,8 @@
+       float v_ref = pc[1];
+       int u_ref_i = floorf(pc[0] / scale) * scale;
+       int v_ref_i = floorf(pc[1] / scale) * scale;
++      if (u_ref_i < lower || v_ref_i < lower ||
++          u_ref_i + upper >= width || v_ref_i + upper >= height) continue;
+       float subpix_u_ref = (u_ref - u_ref_i) / scale;
+       float subpix_v_ref = (v_ref - v_ref_i) / scale;
+       float w_ref_tl = (1.0 - subpix_u_ref) * (1.0 - subpix_v_ref);
+@@ -1634,6 +1647,7 @@
+       error += patch_error;
+     }
+ 
++    if (n_meas == 0) break;
+     error = error / n_meas;
+     
+     compute_jacobian_time += omp_get_wtime() - t1;

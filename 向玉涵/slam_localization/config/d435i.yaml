@@ -1,0 +1,27 @@
+# Flat parameter dictionary consumed by realsense2_camera/launch/rs_launch.py.
+# Equal frame rates are required for exact frameset image/metadata matching.
+device_type: "D435I"
+enable_color: true
+enable_depth: true
+enable_infra: false
+enable_infra1: false
+enable_infra2: false
+enable_gyro: false
+enable_accel: false
+enable_sync: true
+enable_rgbd: true
+align_depth.enable: true
+pointcloud.enable: false
+diagnostics_period: 1.0
+rgb_camera.color_profile: "640,480,30"
+depth_module.depth_profile: "640,480,30"
+# Explicit reliable transport for the exact five-message frame pipeline.
+# The time adapter / perception reader must request RELIABLE as well.
+color_qos: "DEFAULT"
+depth_qos: "DEFAULT"
+# The adapter preserves SDK global_time measurement stamps instead of fitting
+# them a second time to USB arrival. Check actual metadata after connecting.
+rgb_camera.global_time_enabled: true
+depth_module.global_time_enabled: true
+rgb_camera.enable_auto_exposure: true
+depth_module.enable_auto_exposure: true

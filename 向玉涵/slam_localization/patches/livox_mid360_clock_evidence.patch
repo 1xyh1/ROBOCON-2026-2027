@@ -1,0 +1,399 @@
+diff --git a/src/comm/pub_handler.cpp b/src/comm/pub_handler.cpp
+index 62d9e9c..5fd2685 100644
+--- a/src/comm/pub_handler.cpp
++++ b/src/comm/pub_handler.cpp
+@@ -28,9 +28,124 @@
+ #include <chrono>
+ #include <iostream>
+ #include <limits>
++#include <sstream>
++#include <cmath>
+ 
+ namespace livox_ros {
+ 
++namespace {
++uint64_t UtcOffsetNs() {
++  static const uint64_t offset = []() -> uint64_t {
++    const char* value = std::getenv("ROBOCON_LIVOX_PTP_TAI_UTC_OFFSET_S");
++    if (!value) return 0;
++    const auto seconds = std::strtoull(value, nullptr, 10);
++    return seconds <= 100 ? seconds * 1000000000ULL : 0;
++  }();
++  return offset;
++}
++bool RequirePtp() {
++  static const bool required = []() {
++    const char* value = std::getenv("ROBOCON_LIVOX_REQUIRE_PTP");
++    return value && std::strcmp(value, "1") == 0;
++  }();
++  return required;
++}
++}  // namespace
++
++void PubHandler::UpdateDeviceClock(bool valid, uint64_t last_sync, uint32_t powerup) {
++  std::lock_guard<std::mutex> lock(clock_mutex_);
++  if (valid && device_seen_ && powerup != device_powerup_) {
++    ++epoch_;
++    fusion_reset_required_ = true;
++  }
++  if (valid) {
++    device_powerup_ = powerup;
++    device_seen_ = true;
++  }
++  device_valid_ = valid;
++  device_last_sync_ = last_sync;
++  device_received_ = std::chrono::steady_clock::now();
++}
++
++bool PubHandler::DeviceClockReadyLocked() {
++  const auto utc_now = std::chrono::duration_cast<std::chrono::nanoseconds>(
++      std::chrono::system_clock::now().time_since_epoch()).count();
++  const double sync_age = (static_cast<double>(utc_now) - device_last_sync_ + UtcOffsetNs()) * 1e-9;
++  const double query_age = std::chrono::duration<double>(
++      std::chrono::steady_clock::now() - device_received_).count();
++  const bool ready = device_valid_ && device_last_sync_ &&
++      query_age <= 2.5 && sync_age >= -0.05 && sync_age <= 3.0;
++  if (RequirePtp() && fusion_started_ && !ready && !fusion_reset_required_) {
++    ++epoch_;
++    fusion_reset_required_ = true;
++  }
++  return ready;
++}
++
++bool PubHandler::ObserveClock(LivoxLidarEthernetPacket* packet) {
++  std::lock_guard<std::mutex> lock(clock_mutex_);
++  auto& stream = packet->data_type == kLivoxLidarImuData ? imu_clock_ : lidar_clock_;
++  uint64_t stamp = 0;
++  std::memcpy(&stamp, packet->timestamp, sizeof(stamp));
++  const auto now = std::chrono::steady_clock::now();
++  if (stream.packets && stream.time_type == kTimestampTypeGptpOrPtp) {
++    const double stamp_delta = (static_cast<double>(stamp) - stream.stamp) * 1e-9;
++    const double receive_delta = std::chrono::duration<double>(now - stream.received).count();
++    if (packet->time_type != stream.time_type || stamp < stream.stamp ||
++        std::abs(stamp_delta - receive_delta) > 0.5) {
++      ++epoch_;
++      // Never silently stitch two clock epochs into one FAST-LIO trajectory.
++      // Restart the whole front end after re-synchronizing/relocalizing.
++      fusion_reset_required_ = true;
++    }
++  }
++  stream.time_type = packet->time_type;
++  stream.stamp = stamp;
++  stream.received = now;
++  ++stream.packets;
++  if (RequirePtp() && packet->time_type == kTimestampTypeGptpOrPtp) {
++    const auto utc_now = std::chrono::duration_cast<std::chrono::nanoseconds>(
++        std::chrono::system_clock::now().time_since_epoch()).count();
++    const double age = (static_cast<double>(utc_now) - stamp + UtcOffsetNs()) * 1e-9;
++    if (age < -0.02 || age > 0.2) {
++      if (fusion_started_ && !fusion_reset_required_) ++epoch_;
++      if (fusion_started_) fusion_reset_required_ = true;
++      ++rejected_packets_;
++      return false;
++    }
++  }
++  if (RequirePtp() && (!DeviceClockReadyLocked() ||
++      packet->time_type != kTimestampTypeGptpOrPtp || fusion_reset_required_)) {
++    ++rejected_packets_;
++    return false;
++  }
++  fusion_started_ = true;
++  return true;
++}
++
++std::string PubHandler::ClockStatusJson() {
++  std::lock_guard<std::mutex> lock(clock_mutex_);
++  const auto now = std::chrono::steady_clock::now();
++  std::ostringstream json;
++  const bool device_ready = DeviceClockReadyLocked();
++  json << "{\"session\":" << session_ << ",\"epoch\":" << epoch_
++       << ",\"utc_offset_s\":" << UtcOffsetNs() / 1000000000ULL
++       << ",\"require_ptp\":" << (RequirePtp() ? "true" : "false")
++       << ",\"device_clock_gate\":" << (device_ready ? "true" : "false")
++       << ",\"fusion_reset_required\":" << (fusion_reset_required_ ? "true" : "false")
++       << ",\"rejected_packets\":" << rejected_packets_;
++  auto append = [&](const char* name, const StreamClock& stream) {
++    const double age = stream.packets ? std::chrono::duration<double>(now - stream.received).count() : -1;
++    json << ",\"" << name << "\":{\"time_type\":" << static_cast<int>(stream.time_type)
++         << ",\"raw_stamp_ns\":" << stream.stamp << ",\"packets\":" << stream.packets
++         << ",\"receive_age_s\":" << age << "}";
++  };
++  append("lidar", lidar_clock_);
++  append("imu", imu_clock_);
++  json << "}";
++  return json.str();
++}
++
+ std::atomic<bool> PubHandler::is_timestamp_sync_;
+ 
+ PubHandler &pub_handler() {
+@@ -60,6 +175,7 @@ void PubHandler::Uninit() {
+ 
+ void PubHandler::RequestExit() {
+   is_quit_.store(true);
++  packet_condition_.notify_all();
+ }
+ 
+ void PubHandler::SetPointCloudConfig(const double publish_freq) {
+@@ -102,6 +218,8 @@ void PubHandler::OnLivoxLidarPointCloudCallback(uint32_t handle, const uint8_t d
+     return;
+   }
+ 
++  if (!self->ObserveClock(data)) return;
++
+   if (data->time_type != kTimestampTypeNoSync) {
+     is_timestamp_sync_.store(true);
+   } else {
+@@ -139,7 +257,13 @@ void PubHandler::OnLivoxLidarPointCloudCallback(uint32_t handle, const uint8_t d
+   }
+   packet.data_type = data->data_type;
+   packet.point_num = data->dot_num;
+-  packet.point_interval = data->time_interval * 100 / data->dot_num;  //ns
++  // MID-360 defines time_interval as last sample minus first sample.
++  // Keep other device families' existing timing convention unchanged.
++  const bool is_mid360 = dev_type == LivoxLidarDeviceType::kLivoxLidarTypeMid360 ||
++                        dev_type == LivoxLidarDeviceType::kLivoxLidarTypeMid360s;
++  packet.point_interval = is_mid360 ?
++      (data->dot_num > 1 ? data->time_interval * 100 / (data->dot_num - 1) : 0) :
++      (data->dot_num ? data->time_interval * 100 / data->dot_num : 0);
+   packet.time_stamp = GetEthPacketTimestamp(data->time_type,
+                                             data->timestamp, sizeof(data->timestamp));
+   uint32_t length = data->length - sizeof(LivoxLidarEthernetPacket) + 1;
+@@ -240,6 +364,14 @@ void PubHandler::RawDataProcess() {
+       raw_data = raw_packet_queue_.front();
+       raw_packet_queue_.pop_front();
+     }
++    {
++      std::lock_guard<std::mutex> clock_lock(clock_mutex_);
++      if (RequirePtp() && (!DeviceClockReadyLocked() || fusion_reset_required_)) {
++        lidar_process_handlers_.clear();
++        points_.clear();
++        continue;
++      }
++    }
+     uint32_t id = 0;
+     GetLidarId(raw_data.lidar_type, raw_data.handle, id);
+     if (lidar_process_handlers_.find(id) == lidar_process_handlers_.end()) {
+@@ -263,26 +395,22 @@ bool PubHandler::GetLidarId(LidarProtoType lidar_type, uint32_t handle, uint32_t
+ }
+ 
+ uint64_t PubHandler::GetEthPacketTimestamp(uint8_t timestamp_type, uint8_t* time_stamp, uint8_t size) {
+-  LdsStamp time;
+-  memcpy(time.stamp_bytes, time_stamp, size);
++  uint64_t raw_stamp = 0;
++  memcpy(&raw_stamp, time_stamp, size);
+ 
+   if (timestamp_type == kTimestampTypeGptpOrPtp) {
+     // linuxptp's hardware clock is on the PTP/TAI scale, while ROS system
+     // timestamps use UTC. Keep per-point offsets unchanged by shifting both
+     // LiDAR packet and IMU timestamps at this common ingress point.
+-    static const uint64_t utc_offset_ns = []() -> uint64_t {
+-      const char* value = std::getenv("ROBOCON_LIVOX_PTP_TAI_UTC_OFFSET_S");
+-      if (!value) return 0;
+-      const unsigned long long seconds = std::strtoull(value, nullptr, 10);
+-      return seconds <= 100 ? seconds * 1000000000ULL : 0;
+-    }();
+-    return time.stamp >= utc_offset_ns ? time.stamp - utc_offset_ns : time.stamp;
++    const uint64_t utc_offset_ns = UtcOffsetNs();
++    return raw_stamp >= utc_offset_ns ? raw_stamp - utc_offset_ns : raw_stamp;
+   }
+   if (timestamp_type == kTimestampTypeGps) {
+-    return time.stamp;
++    return raw_stamp;
+   }
+ 
+-  return std::chrono::high_resolution_clock::now().time_since_epoch().count();
++  // No-sync is device uptime, not a measurement on the host UTC clock.
++  return raw_stamp;
+ }
+ 
+ /*******************************/
+diff --git a/src/comm/pub_handler.h b/src/comm/pub_handler.h
+index 3314d8f..687a807 100644
+--- a/src/comm/pub_handler.h
++++ b/src/comm/pub_handler.h
+@@ -26,6 +26,8 @@
+ #define LIVOX_DRIVER_PUB_HANDLER_H_
+ 
+ #include <atomic>
++#include <chrono>
++#include <string>
+ #include <cstring>
+ #include <condition_variable> // std::condition_variable
+ #include <deque>
+@@ -90,8 +92,27 @@ class PubHandler {
+   void AddLidarsExtParam(LidarExtParameter& extrinsic_params);
+   void ClearAllLidarsExtrinsicParams();
+   void SetImuDataCallback(ImuDataCallback cb, void* client_data);
++  std::string ClockStatusJson();
++  void UpdateDeviceClock(bool valid, uint64_t last_sync, uint32_t powerup);
+ 
+  private:
++  struct StreamClock {
++    uint8_t time_type = 255;
++    uint64_t stamp = 0;
++    uint64_t packets = 0;
++    std::chrono::steady_clock::time_point received;
++  };
++  bool ObserveClock(LivoxLidarEthernetPacket* packet);
++  bool DeviceClockReadyLocked();
++  std::mutex clock_mutex_;
++  StreamClock lidar_clock_, imu_clock_;
++  const uint64_t session_ = std::chrono::steady_clock::now().time_since_epoch().count();
++  uint64_t epoch_ = 0, rejected_packets_ = 0;
++  bool fusion_reset_required_ = false;
++  bool device_valid_ = false, device_seen_ = false, fusion_started_ = false;
++  uint64_t device_last_sync_ = 0;
++  uint32_t device_powerup_ = 0;
++  std::chrono::steady_clock::time_point device_received_;
+   //thread to process raw data
+   void RawDataProcess();
+   std::atomic<bool> is_quit_{false};
+diff --git a/src/driver_node.cpp b/src/driver_node.cpp
+index 24f0aba..18a9562 100644
+--- a/src/driver_node.cpp
++++ b/src/driver_node.cpp
+@@ -32,10 +32,10 @@ DriverNode& DriverNode::GetNode() noexcept {
+ }
+ 
+ DriverNode::~DriverNode() {
+-  lddc_ptr_->lds_->RequestExit();
+   exit_signal_.set_value();
+-  pointclouddata_poll_thread_->join();
+-  imudata_poll_thread_->join();
++  if (lddc_ptr_ && lddc_ptr_->lds_) lddc_ptr_->lds_->RequestExit();
++  if (pointclouddata_poll_thread_ && pointclouddata_poll_thread_->joinable()) pointclouddata_poll_thread_->join();
++  if (imudata_poll_thread_ && imudata_poll_thread_->joinable()) imudata_poll_thread_->join();
+ }
+ 
+ } // namespace livox_ros
+diff --git a/src/driver_node.h b/src/driver_node.h
+index aaf4f81..3cd85ed 100644
+--- a/src/driver_node.h
++++ b/src/driver_node.h
+@@ -26,6 +26,9 @@
+ #define LIVOX_DRIVER_NODE_H
+ 
+ #include "include/ros_headers.h"
++#ifdef BUILDING_ROS2
++#include "std_msgs/msg/string.hpp"
++#endif
+ 
+ namespace livox_ros {
+ 
+@@ -70,6 +73,9 @@ class DriverNode final : public rclcpp::Node {
+   std::shared_ptr<std::thread> imudata_poll_thread_;
+   std::shared_future<void> future_;
+   std::promise<void> exit_signal_;
++  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr clock_publisher_;
++  rclcpp::TimerBase::SharedPtr clock_timer_;
++  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr device_clock_subscription_;
+ };
+ #endif
+ 
+diff --git a/src/livox_ros_driver2.cpp b/src/livox_ros_driver2.cpp
+index 0b67493..77da8fa 100644
+--- a/src/livox_ros_driver2.cpp
++++ b/src/livox_ros_driver2.cpp
+@@ -31,6 +31,8 @@
+ #include "include/livox_ros_driver2.h"
+ #include "include/ros_headers.h"
+ #include "driver_node.h"
++#include "comm/pub_handler.h"
++#include "rapidjson/document.h"
+ #include "lddc.h"
+ #include "lds_lidar.h"
+ 
+@@ -183,6 +185,37 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & node_options)
+ 
+   pointclouddata_poll_thread_ = std::make_shared<std::thread>(&DriverNode::PointCloudDataPollThread, this);
+   imudata_poll_thread_ = std::make_shared<std::thread>(&DriverNode::ImuDataPollThread, this);
++  clock_publisher_ = create_publisher<std_msgs::msg::String>("/livox/clock_packets", 10);
++  device_clock_subscription_ = create_subscription<std_msgs::msg::String>(
++      "/livox/clock_device", 10, [](const std_msgs::msg::String::SharedPtr message) {
++    rapidjson::Document fields;
++    fields.Parse(message->data.c_str());
++    bool valid = !fields.HasParseError() && fields.IsObject() &&
++        fields.HasMember("valid") && fields["valid"].IsBool() && fields["valid"].GetBool();
++    for (const char* key : {"last_sync_time_ns", "powerup_count", "sync_type", "work_state", "error_code", "received_utc_ns"}) {
++      if (!fields.IsObject() || !fields.HasMember(key) || !fields[key].IsUint64()) valid = false;
++    }
++    for (const char* key : {"powerup_count", "sync_type", "work_state", "error_code"}) {
++      if (!fields.IsObject() || !fields.HasMember(key) || !fields[key].IsUint()) valid = false;
++    }
++    if (valid) {
++      const double age = (std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::system_clock::now().time_since_epoch()).count() -
++          static_cast<double>(fields["received_utc_ns"].GetUint64())) * 1e-9;
++      const uint32_t errors = fields["error_code"].GetUint();
++      valid = fields["sync_type"].GetUint() == 1 && fields["work_state"].GetUint() == 1 &&
++          age >= 0 && age <= 2.5;
++      for (int shift = 0; shift <= 12; shift += 4) if (((errors >> shift) & 15) >= 2) valid = false;
++    }
++    pub_handler().UpdateDeviceClock(valid,
++        valid ? fields["last_sync_time_ns"].GetUint64() : 0,
++        valid ? fields["powerup_count"].GetUint() : 0);
++  });
++  clock_timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() {
++    std_msgs::msg::String message;
++    message.data = pub_handler().ClockStatusJson();
++    clock_publisher_->publish(message);
++  });
+ }
+ 
+ }  // namespace livox_ros
+@@ -196,7 +229,9 @@ RCLCPP_COMPONENTS_REGISTER_NODE(livox_ros::DriverNode)
+ void DriverNode::PointCloudDataPollThread()
+ {
+   std::future_status status;
++#ifdef BUILDING_ROS1
+   std::this_thread::sleep_for(std::chrono::seconds(3));
++#endif
+   do {
+     lddc_ptr_->DistributePointCloudData();
+     status = future_.wait_for(std::chrono::microseconds(0));
+@@ -206,7 +241,9 @@ void DriverNode::PointCloudDataPollThread()
+ void DriverNode::ImuDataPollThread()
+ {
+   std::future_status status;
++#ifdef BUILDING_ROS1
+   std::this_thread::sleep_for(std::chrono::seconds(3));
++#endif
+   do {
+     lddc_ptr_->DistributeImuData();
+     status = future_.wait_for(std::chrono::microseconds(0));
+diff --git a/src/lds.cpp b/src/lds.cpp
+index d278804..10739ef 100644
+--- a/src/lds.cpp
++++ b/src/lds.cpp
+@@ -75,6 +75,9 @@ void Lds::ResetLds(uint8_t data_src) {
+ 
+ void Lds::RequestExit() {
+   request_exit_ = true;
++  // Poll threads can be blocked here even when the device never sent data.
++  pcd_semaphore_.Signal();
++  imu_semaphore_.Signal();
+ }
+ 
+ bool Lds::IsAllQueueEmpty() {
+diff --git a/src/lds.h b/src/lds.h
+index c61eeea..57e6aba 100644
+--- a/src/lds.h
++++ b/src/lds.h
+@@ -28,6 +28,7 @@
+ #define LIVOX_ROS_DRIVER_LDS_H_
+ 
+ #include <map>
++#include <atomic>
+ 
+ #include "comm/semaphore.h"
+ #include "comm/comm.h"
+@@ -75,7 +76,7 @@ class Lds {
+   double publish_freq_;
+   uint8_t data_src_;
+  private:
+-  volatile bool request_exit_;
++  std::atomic_bool request_exit_;
+ };
+ 
+ }  // namespace livox_ros

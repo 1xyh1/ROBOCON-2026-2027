@@ -1,0 +1,11 @@
+--- a/include/voxel_map.h
++++ b/include/voxel_map.h
+@@ -61,8 +61,6 @@
+   M3D body_cov_;
+   int layer_;
+   double d_;
+-  double eigen_value_;
+-  bool is_valid_;
+   float dis_to_plane_;
+ } PointToPlane;
+ 

@@ -1,0 +1,83 @@
+diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
+index d30c49b..bb27f84 100644
+--- a/src/laserMapping.cpp
++++ b/src/laserMapping.cpp
+@@ -35,6 +35,9 @@
+ #include <omp.h>
+ #include <mutex>
+ #include <math.h>
++#include <cmath>
++#include <limits>
++#include <algorithm>
+ #include <thread>
+ #include <fstream>
+ #include <csignal>
+@@ -397,15 +400,24 @@ bool sync_packages(MeasureGroup &meas)
+             lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
+             std::cerr << "Too few input point cloud!\n";
+         }
+-        else if (meas.lidar->points.back().curvature / double(1000) < 0.5 * lidar_mean_scantime)
+-        {
+-            lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
+-        }
+         else
+         {
+-            scan_num ++;
+-            lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000);
+-            lidar_mean_scantime += (meas.lidar->points.back().curvature / double(1000) - lidar_mean_scantime) / scan_num;
++            // MID-360 CustomMsg scan lines can interleave; the last element is
++            // not guaranteed to carry the maximum per-point time offset.
++            double max_offset_ms = 0.0;
++            for (const auto &point : meas.lidar->points)
++                max_offset_ms = std::max(max_offset_ms, static_cast<double>(point.curvature));
++            const double scan_duration = max_offset_ms / double(1000);
++            if (scan_duration < 0.5 * lidar_mean_scantime)
++            {
++                lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
++            }
++            else
++            {
++                scan_num ++;
++                lidar_end_time = meas.lidar_beg_time + scan_duration;
++                lidar_mean_scantime += (scan_duration - lidar_mean_scantime) / scan_num;
++            }
+         }
+ 
+         meas.lidar_end_time = lidar_end_time;
+@@ -633,15 +645,28 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
+     odomAftMapped.header.stamp = get_ros_time(lidar_end_time);
+     set_posestamp(odomAftMapped.pose);
+     auto P = kf.get_P();
+-    for (int i = 0; i < 6; i ++)
++    // state_ikfom order is pos(0..2), rot(3..5), offset_R/T, vel, bg, ba, grav
++    // and nav_msgs pose covariance order is [pos, rot]; copy the top-left 6x6
++    // directly instead of the old permuted mapping (which swapped blocks).
++    bool covariance_finite = true;
++    for (int row = 0; row < 6; ++row)
++    {
++        for (int col = 0; col < 6; ++col)
++        {
++            const double value = P(row, col);
++            if (!std::isfinite(value))
++            {
++                covariance_finite = false;
++                break;
++            }
++            odomAftMapped.pose.covariance[row * 6 + col] = value;
++        }
++        if (!covariance_finite) break;
++    }
++    if (!covariance_finite)
+     {
+-        int k = i < 3 ? i + 3 : i - 3;
+-        odomAftMapped.pose.covariance[i*6 + 0] = P(k, 3);
+-        odomAftMapped.pose.covariance[i*6 + 1] = P(k, 4);
+-        odomAftMapped.pose.covariance[i*6 + 2] = P(k, 5);
+-        odomAftMapped.pose.covariance[i*6 + 3] = P(k, 0);
+-        odomAftMapped.pose.covariance[i*6 + 4] = P(k, 1);
+-        odomAftMapped.pose.covariance[i*6 + 5] = P(k, 2);
++        for (int i = 0; i < 36; ++i)
++            odomAftMapped.pose.covariance[i] = std::numeric_limits<double>::quiet_NaN();
+     }
+     pubOdomAftMapped->publish(odomAftMapped);
+ 

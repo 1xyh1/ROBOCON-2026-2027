@@ -1,0 +1,8 @@
+# Map directory saved by mapping.launch.py under map_dir.
+map_name: motion-09
+map_dir: map
+rviz: true
+
+# Leave empty to use the files saved with the map. Names resolve under config/.
+config: ""
+livox_config: ""

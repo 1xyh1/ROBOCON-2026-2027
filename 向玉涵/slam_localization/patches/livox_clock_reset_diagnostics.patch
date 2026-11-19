@@ -1,0 +1,86 @@
+diff --git a/src/comm/pub_handler.cpp b/src/comm/pub_handler.cpp
+index 5fd2685..835529f 100644
+--- a/src/comm/pub_handler.cpp
++++ b/src/comm/pub_handler.cpp
+@@ -54,9 +54,10 @@ bool RequirePtp() {
+ 
+ void PubHandler::UpdateDeviceClock(bool valid, uint64_t last_sync, uint32_t powerup) {
+   std::lock_guard<std::mutex> lock(clock_mutex_);
+-  if (valid && device_seen_ && powerup != device_powerup_) {
++  if (valid && device_seen_ && powerup != device_powerup_ && !fusion_reset_required_) {
+     ++epoch_;
+     fusion_reset_required_ = true;
++    last_reset_reason_ = "device_powerup_changed";
+   }
+   if (valid) {
+     device_powerup_ = powerup;
+@@ -78,6 +79,9 @@ bool PubHandler::DeviceClockReadyLocked() {
+   if (RequirePtp() && fusion_started_ && !ready && !fusion_reset_required_) {
+     ++epoch_;
+     fusion_reset_required_ = true;
++    last_reset_reason_ = !device_valid_ ? "device_query_invalid" :
++        query_age > 2.5 ? "device_query_stale" : "device_sync_age_out_of_range";
++    last_reset_detail_s_ = query_age > 2.5 ? query_age : sync_age;
+   }
+   return ready;
+ }
+@@ -93,10 +97,17 @@ bool PubHandler::ObserveClock(LivoxLidarEthernetPacket* packet) {
+     const double receive_delta = std::chrono::duration<double>(now - stream.received).count();
+     if (packet->time_type != stream.time_type || stamp < stream.stamp ||
+         std::abs(stamp_delta - receive_delta) > 0.5) {
+-      ++epoch_;
+-      // Never silently stitch two clock epochs into one FAST-LIO trajectory.
+-      // Restart the whole front end after re-synchronizing/relocalizing.
+-      fusion_reset_required_ = true;
++      if (!fusion_reset_required_) {
++        ++epoch_;
++        // Never silently stitch two clock epochs into one FAST-LIO trajectory.
++        // Restart the whole front end after re-synchronizing/relocalizing.
++        fusion_reset_required_ = true;
++        const std::string prefix = packet->data_type == kLivoxLidarImuData ? "imu_" : "lidar_";
++        last_reset_reason_ = prefix + (packet->time_type != stream.time_type ?
++            "time_type_changed" : stamp < stream.stamp ?
++            "timestamp_regressed" : "timestamp_rate_mismatch");
++        last_reset_detail_s_ = stamp_delta - receive_delta;
++      }
+     }
+   }
+   stream.time_type = packet->time_type;
+@@ -108,8 +119,13 @@ bool PubHandler::ObserveClock(LivoxLidarEthernetPacket* packet) {
+         std::chrono::system_clock::now().time_since_epoch()).count();
+     const double age = (static_cast<double>(utc_now) - stamp + UtcOffsetNs()) * 1e-9;
+     if (age < -0.02 || age > 0.2) {
+-      if (fusion_started_ && !fusion_reset_required_) ++epoch_;
+-      if (fusion_started_) fusion_reset_required_ = true;
++      if (fusion_started_ && !fusion_reset_required_) {
++        ++epoch_;
++        fusion_reset_required_ = true;
++        last_reset_reason_ = packet->data_type == kLivoxLidarImuData ?
++            "imu_packet_age_out_of_range" : "lidar_packet_age_out_of_range";
++        last_reset_detail_s_ = age;
++      }
+       ++rejected_packets_;
+       return false;
+     }
+@@ -133,6 +149,8 @@ std::string PubHandler::ClockStatusJson() {
+        << ",\"require_ptp\":" << (RequirePtp() ? "true" : "false")
+        << ",\"device_clock_gate\":" << (device_ready ? "true" : "false")
+        << ",\"fusion_reset_required\":" << (fusion_reset_required_ ? "true" : "false")
++       << ",\"last_reset_reason\":\"" << last_reset_reason_ << "\""
++       << ",\"last_reset_detail_s\":" << last_reset_detail_s_
+        << ",\"rejected_packets\":" << rejected_packets_;
+   auto append = [&](const char* name, const StreamClock& stream) {
+     const double age = stream.packets ? std::chrono::duration<double>(now - stream.received).count() : -1;
+diff --git a/src/comm/pub_handler.h b/src/comm/pub_handler.h
+index 687a807..0ce0f7b 100644
+--- a/src/comm/pub_handler.h
++++ b/src/comm/pub_handler.h
+@@ -109,6 +109,8 @@ class PubHandler {
+   const uint64_t session_ = std::chrono::steady_clock::now().time_since_epoch().count();
+   uint64_t epoch_ = 0, rejected_packets_ = 0;
+   bool fusion_reset_required_ = false;
++  std::string last_reset_reason_ = "none";
++  double last_reset_detail_s_ = 0.0;
+   bool device_valid_ = false, device_seen_ = false, fusion_started_ = false;
+   uint64_t device_last_sync_ = 0;
+   uint32_t device_powerup_ = 0;

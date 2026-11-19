@@ -1,0 +1,10 @@
+map_dir: map
+# Leave empty to name each new map by timestamp.
+map_name: ""
+record: false
+rviz: false
+
+# File names resolve under config/. Absolute paths also work.
+config: mid360_b3.yaml
+livox_config: livox_mid360_mini_host.json
+camera_config: d435i.yaml

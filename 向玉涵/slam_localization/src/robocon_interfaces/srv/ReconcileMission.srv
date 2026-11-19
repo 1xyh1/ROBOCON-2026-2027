@@ -1,0 +1,6 @@
+bool action_had_effect
+string[] observed_payload
+string evidence_id
+---
+bool success
+string message

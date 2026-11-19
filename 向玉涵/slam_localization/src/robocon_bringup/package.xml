@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robocon_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch and configuration for the Robocon 2027 upper computer.</description>
+  <maintainer email="team@example.invalid">Robocon Team</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>robocon_interfaces</exec_depend>
+  <exec_depend>robocon_time_alignment</exec_depend>
+  <exec_depend>robocon_localization</exec_depend>
+  <exec_depend>robocon_global_localization</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>robocon_perception</exec_depend>
+  <exec_depend>robocon_executive</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+  <exec_depend>fast_lio</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

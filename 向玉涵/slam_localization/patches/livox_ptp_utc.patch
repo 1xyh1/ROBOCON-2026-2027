@@ -1,0 +1,24 @@
+diff --git a/src/comm/pub_handler.cpp b/src/comm/pub_handler.cpp
+--- a/src/comm/pub_handler.cpp
++++ b/src/comm/pub_handler.cpp
+@@ -265,7 +265,18 @@ uint64_t PubHandler::GetEthPacketTimestamp(uint8_t timestamp_type, uint8_t* time_stamp, uint8_t size) {
+   LdsStamp time;
+   memcpy(time.stamp_bytes, time_stamp, size);
+ 
+-  if (timestamp_type == kTimestampTypeGptpOrPtp ||
+-      timestamp_type == kTimestampTypeGps) {
++  if (timestamp_type == kTimestampTypeGptpOrPtp) {
++    // linuxptp's hardware clock is on the PTP/TAI scale, while ROS system
++    // timestamps use UTC. Keep per-point offsets unchanged by shifting both
++    // LiDAR packet and IMU timestamps at this common ingress point.
++    static const uint64_t utc_offset_ns = []() -> uint64_t {
++      const char* value = std::getenv("ROBOCON_LIVOX_PTP_TAI_UTC_OFFSET_S");
++      if (!value) return 0;
++      const unsigned long long seconds = std::strtoull(value, nullptr, 10);
++      return seconds <= 100 ? seconds * 1000000000ULL : 0;
++    }();
++    return time.stamp >= utc_offset_ns ? time.stamp - utc_offset_ns : time.stamp;
++  }
++  if (timestamp_type == kTimestampTypeGps) {
+     return time.stamp;
+   }

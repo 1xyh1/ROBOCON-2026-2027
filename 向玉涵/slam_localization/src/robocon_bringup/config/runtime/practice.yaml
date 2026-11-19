@@ -1,0 +1,17 @@
+schema_version: 1
+mode: practice
+robot_id: br_mini
+sensors:
+  d435i:
+    # SDK serial, not the ASIC/USB descriptor serial.
+    serial: '310222077789'
+  mid360:
+    ip: 192.168.1.139
+    host_ip: 192.168.1.2
+    interface: eno1
+    # Observed TAI-UTC value; check PTP evidence before each run.
+    ptp_utc_offset_s: 37
+localization:
+  enabled: false
+  map: null
+  calibration: null

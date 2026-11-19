@@ -1,0 +1,105 @@
+# Mechanical draft only. No ROS launch loads this file; this is NOT a calibration bundle.
+schema_version: 1
+status: mechanical_initialization_only
+approved: false
+publish_tf: false
+created_on: '2026-10-05'
+camera_serial: '310222077789'
+factory_evidence: resources/docs/evidence/2026-10-05-sensor-rig/d435i-factory-extrinsics.json
+transform_convention: 'p_target = R_target_source * p_source + t_target_source'
+matrix_storage: row_major
+
+frames:
+  B:
+    name: sensor_rig_mount
+    origin: center_of_mid360_four_mounting_holes_on_lidar_bottom_plane
+    axes: {x: camera_forward, y: camera_left, z: up}
+    is_base_link: false
+  L:
+    name: mid360_link
+    origin: mid360_point_cloud_origin_O
+    axes: {x: opposite_M12_connector, y: nominal_camera_backward, z: up}
+    name_is_current_ros_frame_id: true
+  D:
+    name: camera_depth_optical_frame
+    origin: D435i_left_IR_depth_origin
+    axes: {x: image_right, y: image_down, z: camera_forward}
+  C:
+    name: camera_color_optical_frame
+    origin: factory_RGB_origin
+    axes: {x: RGB_image_right, y: RGB_image_down, z: RGB_forward}
+
+plate_drawing_mm:
+  width: 70.0
+  length: 110.0
+  coordinate_origin: lower_left_of_uploaded_drawing
+  mid360_holes_uv: [[11.0, 15.0], [59.0, 15.0], [11.0, 51.0], [59.0, 51.0]]
+  mid360_hole_diameter: 3.3
+  mid360_hole_pattern_center_uv: [35.0, 33.0]
+  large_hole_center_uv: [35.0, 91.0]
+  large_hole_diameter: 6.5
+  pattern_center_to_large_hole: 58.0
+  large_hole_is_camera_mount: inferred_not_measured
+
+manual_nominals_mm:
+  mid360_origin_above_bottom_plane: 47.0
+  depth_left_IR_offset_to_tripod_axis_toward_camera_left: 17.5
+  depth_origin_behind_front_glass: 4.2
+  values_are_metrology_results: false
+
+installation_assumptions:
+  - MID360_M12_and_D435i_USB_are_on_camera_right_side_as_seen_in_photo
+  - camera_upright_optical_axis_parallel_to_plate
+  - lidar_upright_and_mounting_edges_parallel_to_plate
+  - camera_tripod_axis_is_on_large_hole_axis
+  - factory_depth_frame_axes_follow_nominal_camera_optical_axes
+  - MID360_origin_projects_to_nominal_four_hole_pattern_center
+  - measured_geometry_and_projection_validation_are_still_required
+
+required_measurements_mm:
+  # Forward distance, NOT Euclidean distance; see the report for the reference points.
+  front_glass_x_mm: 73.0
+  # Height from the MID360 bottom mounting plane to the LEFT IR imager center.
+  ir_center_height_mm: 16.0
+  # Zero comes from nominal hole centering, not a measured lateral offset.
+  camera_mount_y_mm: null
+nominal_camera_mount_y_mm: 0.0
+
+measurement_provenance:
+  source: user_reported_dimensions_2026_10_05
+  nearest_mid360_hole_row_to_front_glass_mm: 55.0
+  pattern_center_to_nearest_row_mm: 18.0
+  derivation_of_front_glass_x_mm: '55.0 + 36.0 / 2.0 = 73.0'
+  ir_center_height_mm: 16.0
+  uncertainty_mm: null
+  independent_verification_completed: false
+
+nominal_rotations:
+  B_from_L: [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+  B_from_D: [[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]
+  D_from_L: [[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, -1.0, 0.0]]
+
+translation_model_mm:
+  B_from_L: [0.0, 0.0, 47.0]
+  B_from_D: ['front_glass_x_mm - 4.2', 'camera_mount_y_mm + 17.5', 'ir_center_height_mm']
+  D_from_L: ['camera_mount_y_mm + 17.5', 'ir_center_height_mm - 47.0', '4.2 - front_glass_x_mm']
+  L_from_camera_link: ['camera_mount_y_mm + 17.5', '4.2 - front_glass_x_mm', 'ir_center_height_mm - 47.0']
+
+mechanical_seed_using_nominal_lateral_centering:
+  camera_mount_y_mm_used: 0.0
+  translation_unit: m
+  D_from_L_translation: [0.0175, -0.0310, -0.0688]
+  L_from_D_translation: [0.0175, -0.0688, -0.0310]
+  L_from_camera_link_translation: [0.0175, -0.0688, -0.0310]
+  L_from_camera_link_rotation: [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+  L_from_camera_link_rpy_rad: [0.0, 0.0, -1.5707963267948966]
+  lateral_centering_and_installation_angles_are_measured: false
+
+runtime_activation_requirements:
+  - independently_validate_camera_LIDAR_rotation_and_translation
+  - validate_depth_and_RGB_projection_on_multiple_planes_and_distances
+  - validate_residual_timestamp_offset_with_motion_data
+  - verify_or_freeze_FAST_LIO_LIDAR_to_IMU_extrinsics_before_static_TF_use
+  - bind_calibration_identity_to_device_serials_and_rig_revision
+  - assign_exactly_one_TF_owner_for_each_child_frame
+  - obtain_measured_rig_to_robot_base_transform_after_robot_installation

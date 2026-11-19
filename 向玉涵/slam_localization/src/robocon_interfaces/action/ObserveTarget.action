@@ -1,0 +1,12 @@
+uint8 class_id
+string output_frame
+float32 minimum_confidence
+float32 timeout_s
+---
+bool success
+robocon_interfaces/TargetObservation observation
+string message
+---
+string state
+float32 best_confidence
+

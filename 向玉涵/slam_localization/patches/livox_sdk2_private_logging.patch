@@ -1,0 +1,20 @@
+diff --git a/sdk_core/CMakeLists.txt b/sdk_core/CMakeLists.txt
+--- a/sdk_core/CMakeLists.txt
++++ b/sdk_core/CMakeLists.txt
+@@ -7,6 +7,16 @@ set(SDK_LIBRARY_SHARED livox_lidar_sdk_shared)
+ add_library(${SDK_LIBRARY_STATIC} STATIC "")
+ add_library(${SDK_LIBRARY_SHARED} SHARED "")
+ 
++# The bundled spdlog 1.3.1 / fmt must not interpose ROS Humble's system
++# spdlog 1.9.2 symbols (different logger layouts). These implementation-only
++# namespaces also keep UninitLogger's drop_all() out of ROS's registry.
++# Public Livox headers expose neither dependency; the public API is unchanged.
++foreach(sdk_target ${SDK_LIBRARY_STATIC} ${SDK_LIBRARY_SHARED})
++  target_compile_definitions(${sdk_target} PRIVATE
++    spdlog=livox_sdk2_spdlog
++    fmt=livox_sdk2_fmt)
++endforeach()
++
+ set(LIVOX_SDK_MAJOR_VERSION "0")
+ set(LIVOX_SDK_MINOR_VERSION "0")
+ set(LIVOX_SDK_PATCH_VERSION "2")

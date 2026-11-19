@@ -1,0 +1,24 @@
+--- a/src/IMU_Processing.cpp
++++ b/src/IMU_Processing.cpp
+@@ -257,10 +257,8 @@
+   double prop_beg_time = last_prop_end_time;
+   if (prop_beg_time < 0.0)
+   {
+-    // First scan: start at the first real IMU sample of the group instead of
+-    // an indeterminate value (v_imu.front() is the default-initialized
+-    // last_imu placeholder on the very first call).
+-    prop_beg_time = v_imu.size() > 1 ? stamp2Sec(v_imu[1]->header.stamp) : imu_end_time;
++    // IMU_init saved the final real sample in last_imu. Continue from it.
++    prop_beg_time = imu_beg_time;
+   }
+   // printf("[ IMU ] undistort input size: %zu \n", lidar_meas.pcl_proc_cur->points.size());
+   // printf("[ IMU ] IMU data sequence size: %zu \n", meas.imu.size());
+@@ -370,7 +368,7 @@
+       if (stamp2Sec(head->header.stamp) < prop_beg_time)
+       {
+         // printf("00 \n");
+-        dt = stamp2Sec(tail->header.stamp) - last_prop_end_time;
++        dt = stamp2Sec(tail->header.stamp) - prop_beg_time;
+         offs_t = stamp2Sec(tail->header.stamp) - prop_beg_time;
+       }
+       else if (i != v_imu.size() - 2)

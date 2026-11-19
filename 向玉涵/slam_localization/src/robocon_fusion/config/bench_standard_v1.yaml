@@ -1,0 +1,29 @@
+schema_version: 1
+id: slam-bench-v0.2
+status: provisional_engineering_targets_not_rulebook_or_accuracy_certification
+runtime:
+  min_odom_hz: 10.0
+  max_odom_gap_s: 0.75
+  max_age_p99_s: 0.25
+  min_age_s: -0.02
+  min_coverage_fraction: 0.8
+  max_health_gap_s: 2.5
+  required_health: [mid360_ptp_clock, d435i_color_clock]
+  min_input_hz: {lidar: 8.0, imu: 150.0, rgb: 20.0}
+static:
+  horizontal_p95_m: 0.010
+  vertical_p95_m: 0.010
+  yaw_p95_deg: 0.30
+  max_excursion_m: 0.030
+closure:
+  translation_m: 0.030
+  yaw_deg: 0.50
+  min_excursion_m: 0.50
+cases:
+  SB00: {name: 数据入口与时间健康, duration_s: 30, minimum_s: 30, protocol: 保持静止；检查真实 USB/PTP、输入连续性及启动告警。}
+  SB01: {name: 静态稳定性, duration_s: 180, minimum_s: 180, protocol: 固定整套传感器；预热后连续静置 180 秒，不触碰桌面和支架。}
+  SB02: {name: 人工闭合路径, duration_s: 120, minimum_s: 60, protocol: 手持缓慢走闭合路径；离起点至少 0.5 m，最后回到同一定位夹具，人工确认。}
+  SB03: {name: 独立真值精度, duration_s: 120, minimum_s: 60, protocol: 需独立真值轨迹、外参和时戳匹配；当前不自动签署精度通过。}
+  SB04: {name: 时空标定验收, duration_s: 60, minimum_s: 60, protocol: 多平面多距离投影与动态残余时差实测；未提供标定证据时保持待验证。}
+  SB05: {name: 失流与退化恢复, duration_s: 60, minimum_s: 60, protocol: 现场人工确认后遮挡/断线；本工具不自动断设备，当前无已验收的自动降级恢复。}
+  SB06: {name: 长时间稳定性, duration_s: 1800, minimum_s: 1800, protocol: 连续 30 分钟；记录资源、数据新鲜度、进程退出和磁盘上限，不自动重启主机。}

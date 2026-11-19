@@ -1,0 +1,21 @@
+geometry_msgs/PoseWithCovarianceStamped[] seeds
+string expected_floor
+float32 timeout_s
+string map_id
+string calibration_id
+uint64 odom_epoch
+---
+bool success
+geometry_msgs/PoseWithCovarianceStamped pose
+robocon_interfaces/LocalizationQuality quality
+string message
+bool tf_committed
+# Anchor generation; subsequent continuous quality must retain this identity.
+uint64 localization_generation
+# Revision of the TF commit that completed this action.
+uint64 tf_revision
+---
+uint32 evaluated_seeds
+float32 best_rmse_m
+float32 best_overlap_ratio
+

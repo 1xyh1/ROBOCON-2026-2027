@@ -1,0 +1,12 @@
+std_msgs/Header header
+string sensor
+bool valid
+uint32 sample_count
+float64 scale
+float64 offset_s
+float64 skew_ppm
+float64 delay_p50_s
+float64 delay_p95_s
+float64 jitter_s
+uint32 reset_count
+string detail
