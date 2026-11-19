@@ -1,0 +1,7 @@
+# 保留原始快照中这些文件的 CRLF 字节，不做换行转换。
+# 其余文件按仓库默认（core.autocrlf）处理；GitHub 上存储的内容与源快照一致。
+src/fast_lio/include/IKFoM_toolkit/mtk/types/S2.hpp -text
+src/robocon_bringup/rviz/fusion.rviz -text
+src/robocon_bringup/rviz/lio.rviz -text
+src/robocon_bringup/rviz/map.rviz -text
+src/robocon_bringup/rviz/mapping.rviz -text
