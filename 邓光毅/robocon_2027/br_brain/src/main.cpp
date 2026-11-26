@@ -2,7 +2,7 @@
 #include <chrono>
 #include <memory>
 #include <cmath>
-
+#include <limits>
 
 //ROS2的头文件
 #include "rclcpp/rclcpp.hpp"
@@ -15,10 +15,14 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 
+//自定义消息格式的头文件
+#include "br_brain/msg/spot_state.hpp"
+#include "br_brain/msg/transfer_state.hpp"
+
 
 
 //本项目头文件
-#include "br_brain/common_defs.h"
+#include "br_brain/defs.h"
 #include "br_brain/arbitrate_layer.h"
 #include "br_brain/skills/skill_layer.h"
 #include "br_brain/assembler.h"
@@ -35,10 +39,11 @@
 节拍/频率 10ms 仲裁器更新频率
 
 
-br_brain源码纯cpp不碰ros 仅有此文件连接ros2与决策
+br_brain源码纯cpp 仅有此文件连接ros2与决策
 
 
 gazebo清理
+killall -9 gzserver gzclient
 killall -9 gzserver gzclient 2>/dev/null
 ps aux | grep -E "gz[s]erver|gz[c]lient"    # 应该无输出
 若有残留物
@@ -50,6 +55,12 @@ ros2 daemon stop
 
 ros2 topic pub /event std_msgs/msg/String "{data: start}" --once
 ros2 topic pub /event std_msgs/msg/String "{data: buzzer}" --once
+
+
+ros2 topic pub /spot_info br_brain/msg/SpotState "{spot: 3, build_state: 2}" --once    
+ros2 topic pub /spot_info br_brain/msg/SpotState "{spot: 200, build_state: 1}" --once   
+
+
 
 */
 
@@ -63,14 +74,18 @@ public:
 
     BrBrainNode() : Node("br_brain_node")
     {
-        
+        //全局配置文件
+        const std::string global_yaml = ament_index_cpp::get_package_share_directory("br_brain") + "/config/global.yaml";
+
 
         //加载场地地图 路径来自安装空间share目录 与当前工作目录无关
-        const std::string map_yaml =
-            ament_index_cpp::get_package_share_directory("br_brain") + "/maps/field_sim.yamlasd";
+        // const std::string map_yaml =
+        //     ament_index_cpp::get_package_share_directory("br_brain") + "/maps/field_sim.yaml";
         
 
-        Assembler::Assemble(this->world_model, this->skill_layer, this->arbitrate_layer, map_yaml);
+
+
+        Assembler::Assemble(this->world_model, this->skill_layer, this->arbitrate_layer, global_yaml);
 
 
 
@@ -103,7 +118,6 @@ public:
 
 
 
-
         this->cmd_vel_pub = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10); 
         //发布话题
 
@@ -113,6 +127,16 @@ public:
             std::chrono::milliseconds(10),
             std::bind(&BrBrainNode::Tick, this));
 
+
+        this->spotinfo_sub = this->create_subscription<br_brain::msg::SpotState>(
+            "/spot_info", 10,
+            std::bind(&BrBrainNode::SpotInfo, this, std::placeholders::_1)
+        );
+
+        this->transferinfo_sub = this->create_subscription<br_brain::msg::TransferState>(
+            "/transfer_info", 10,
+            std::bind(&BrBrainNode::TransferInfo, this, std::placeholders::_1)
+        );
         
 
 
@@ -147,6 +171,10 @@ private:
     rclcpp::TimerBase::SharedPtr timer;
     //std标准库中共享指针的别名 等价于 std::shared_ptr<Subscription<String>>
 
+
+    rclcpp::Subscription<br_brain::msg::SpotState>::SharedPtr spotinfo_sub;
+    rclcpp::Subscription<br_brain::msg::TransferState>::SharedPtr transferinfo_sub;
+    
 
     Event current_event = Event::None;
 
@@ -203,6 +231,10 @@ private:
         for(size_t i = 0; i < msg->ranges.size() && i < WorldModel::SCAN_BEAM_COUNT; i++)
         {
             this->world_model->scan_ranges[i] = msg->ranges[i];
+            if(msg->ranges[i] == -1)
+            {
+                this->world_model->scan_ranges[i] = std::numeric_limits<double>::infinity();
+            }
         }
 
         this->world_model->scan_stamp_s = rclcpp::Time(msg->header.stamp).seconds();
@@ -229,7 +261,7 @@ private:
 
 
         this->print_tick++;
-        if(this->print_tick >= 100)
+        if(this->print_tick >= 400)
         {
             this->print_tick = 0;
             RCLCPP_INFO(this->get_logger(), "场地: x=%.3f y=%.3f yaw=%.3f | odom: %.3f %.3f %.3f | 修正边: %.3f %.3f %.3f",
@@ -253,9 +285,33 @@ private:
         }
 
 
+
     }
 
 
+
+
+
+
+    void SpotInfo(const br_brain::msg::SpotState::SharedPtr msg)
+    {
+        Area spot = static_cast<Area>(msg->spot);
+        BuildState buildstate = static_cast<BuildState>(msg->build_state);
+
+        this->world_model->UpdateSpotInfo(spot, buildstate);
+
+    }
+
+
+
+    void TransferInfo(const br_brain::msg::TransferState::SharedPtr msg)
+    {
+        ItemType item = static_cast<ItemType>(msg->item_type);
+        uint8_t cnt = msg->count;
+
+        this->world_model->UpdateTransferInfo(item, cnt);
+
+    }
 
 
 

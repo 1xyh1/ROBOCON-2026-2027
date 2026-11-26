@@ -3,14 +3,9 @@
 
 #include <iostream> //虽然最顶层的头文件有使用  但是秉持哪里用就include的原则写 避免更改顶层文件导致下层崩溃
 
-BuildEarth::BuildEarth(WorldModel* world_model, SkillLayer* skill_layer) : Mission(world_model, skill_layer) {}
+BuildEarth::BuildEarth(WorldModel* world_model, SkillLayer* skill_layer, MissionDetails mission_details) : 
+Mission(world_model, skill_layer, mission_details) {}
 
-
-
-MissionID BuildEarth::GetMissionID()
-{
-    return MissionID::BuildEarth;
-}
 
 
 

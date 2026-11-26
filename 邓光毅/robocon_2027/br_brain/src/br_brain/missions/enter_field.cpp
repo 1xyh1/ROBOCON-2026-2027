@@ -7,21 +7,15 @@
 
 
 
-//技能头文件
-#include "br_brain/skills/skill_chassis.h"
+
+
+#include "br_brain/action/navigate/navigate_action.h"
 
 
 
+EnterField::EnterField(WorldModel* world_model, SkillLayer* skill_layer, MissionDetails mission_details) : 
+Mission(world_model, skill_layer, mission_details) {}
 
-
-EnterField::EnterField(WorldModel* world_model, SkillLayer* skill_layer) : Mission(world_model, skill_layer) {}
-
-
-
-MissionID EnterField::GetMissionID()
-{
-    return MissionID::EnterField;
-}
 
 
 
@@ -31,20 +25,11 @@ MissionID EnterField::GetMissionID()
 
 void EnterField::Enter()
 {
-    this->tick_count = 0;
+    NavigateRequire navi_require = {mission_details.target_area, mission_details.target_x, mission_details.target_y};
 
-    //从仲裁层技能池中获取技能指针 push进当前任务的技能池
-    this->current_skillpool.push_back(this->skill_layer->Borrow<SkillChassis>());    //底盘控制技能
+    //注册导航动作
+    this->action_sequnce->AddAction(std::make_unique<NavigateAction>(world_model, skill_layer, navi_require));
 
-
-    //入场目标地点 随便定的
-    this->target_x = 2.0;
-    this->target_y = -2.0;
-
-
-
-    //输出检查
-    std::cout<<"[任务] 进入 EnterField 任务 目标点 ("<<this->target_x<<", "<<this->target_y<<") \n";
 
 }
 
@@ -53,9 +38,7 @@ void EnterField::Enter()
 
 void EnterField::Stop()
 {
-    //先扇出暂停所有技能
-    this->StopAllSkills();
-
+    this->action_sequnce->StopActions();
 
 
 
@@ -83,25 +66,19 @@ Mission::MissionStatus EnterField::Execute()
         return MissionStatus::Failed;
     }
 
-    //测试 底盘走到目标点才会完成任务
-    //this->tick_count++;
-    SkillChassis* chassis = this->GetCurrentSkill<SkillChassis>();
+    ActionState state = this->action_sequnce->Execute();
 
-    if(!chassis)
+    switch(state)
     {
-        std::cout<<"底盘技能指针不存在 任务失败\n";
-        return MissionStatus::Failed;
+        case ActionState::DONE : 
+            this->world_model->field_entered = true; 
+            return MissionStatus::Done;
+        case ActionState::FAILED : return MissionStatus::Failed;
+
+        default : return MissionStatus::Running;
     }
 
 
-    if(chassis->NavigateTo(this->target_x, this->target_y))
-    {
-        std::cout<<"[任务] EnterField 任务正常完成\n";
-        return MissionStatus::Done;
-    }
-
-
-    return MissionStatus::Running;
 
 } 
 

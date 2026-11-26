@@ -27,17 +27,25 @@
 //任务类
 #include "br_brain/missions/mission_base.h"
 #include "br_brain/missions/enter_field.h"
+#include "br_brain/missions/fetch_earth.h"
+#include "br_brain/missions/fetch_sky.h"
+#include "br_brain/missions/fetch_mustika.h"
 #include "br_brain/missions/build_earth.h"
+#include "br_brain/missions/build_sky.h"
+#include "br_brain/missions/flip_sky.h"
+#include "br_brain/missions/mustika.h"
+#include "br_brain/missions/debug.h"
 
 
 //技能类
 #include "br_brain/skills/skill_layer.h"
 #include "br_brain/skills/skill_base.h"
-#include "br_brain/skills/skill_chassis.h"
+#include "br_brain/skills/chassis/skill_chassis.h"
 
 
 //功能函数
-#include "utils/map_loader.h"
+#include "br_brain/utils/config_loader.h"
+
 
 
 
@@ -57,7 +65,7 @@ public:
     
 
     //任务装配回调 即MissionCreator
-    static std::unique_ptr<Mission> CreateMission(WorldModel* world_model, SkillLayer* skill_layer, MissionID id);
+    static std::unique_ptr<Mission> CreateMission(WorldModel* world_model, SkillLayer* skill_layer, MissionDetails mission_details);
 
 
 private:

@@ -43,6 +43,7 @@ WorldModel::WorldModel()
     this->map_origin_x = -7.5;    
     this->map_origin_y = -7.5;    
     this->map_cells.assign(90000, WorldModel::CELL_FREE);
+    this->real_cells.assign(90000, WorldModel::CELL_FREE);
 
     //dyn_cells/stamp/version雷达动态标记图     默认全空
     this->dyn_cells.assign(90000, 0);
@@ -54,6 +55,46 @@ WorldModel::WorldModel()
     //cmd_v/w
     this->cmd_v = 0 ;
     this->cmd_w = 0 ;
+
+
+
+
+
+
+
+
+
+    //以及各个建造点位的绝对坐标 暂时无地图先随便定
+    this->area_pose[Area::RetryArea] =                       {2.0, 0.0};
+    this->area_pose[Area::TransferArea] =                    {0.0, 0.0};
+    this->area_pose[Area::L1_North_ExclusiveBuildingArea] =  {3.0, -3.0};
+    this->area_pose[Area::L1_South_ExclusiveBuildingArea] =  {3.0, 3.0};
+    this->area_pose[Area::L1_North_SharedBuildingArea] =     {1.0, 0.0};
+    this->area_pose[Area::L1_South_SharedBuildingArea] =     {-1.0, 0.0};
+
+    this->area_pose[Area::L2_Northwest_SharedBuildingArea] = {-2.0, 2.0};
+    this->area_pose[Area::L2_Northeast_SharedBuildingArea] = {2.0, 2.0};
+    this->area_pose[Area::L2_Southwest_SharedBuildingArea] = {-2.0, -2.0};
+    this->area_pose[Area::L2_Southeast_SharedBuildingArea] = {2.0, -2.0};
+
+    this->area_pose[Area::MustikaArea] =                     {1.0, 1.0};
+    this->area_pose[Area::None] =                            {0.0, 0.0};
+
+    //建造点位状态表 键全集初始化 默认全是None
+    this->spot_info[Area::L1_North_ExclusiveBuildingArea]  = SpotInfo{};
+    this->spot_info[Area::L1_South_ExclusiveBuildingArea]  = SpotInfo{};
+    this->spot_info[Area::L1_North_SharedBuildingArea]     = SpotInfo{};
+    this->spot_info[Area::L1_South_SharedBuildingArea]     = SpotInfo{};
+    this->spot_info[Area::L2_Northwest_SharedBuildingArea] = SpotInfo{};
+    this->spot_info[Area::L2_Southwest_SharedBuildingArea] = SpotInfo{};
+    this->spot_info[Area::L2_Northeast_SharedBuildingArea] = SpotInfo{};
+    this->spot_info[Area::L2_Southeast_SharedBuildingArea] = SpotInfo{};
+    this->spot_info[Area::MustikaArea]                     = SpotInfo{};
+
+    //交接区物品初始化
+    this->transfer_item[ItemType::Earth] = 0;
+    this->transfer_item[ItemType::Sky] = 0;
+    this->transfer_item[ItemType::Mustika] = 0;
 
 
 };
@@ -99,6 +140,20 @@ void WorldModel::UpdatePosition()
     this->pose_yaw = std::remainder(odom_yaw + corr_yaw, 2.0 * M_PI); 
 
     this->scan_angle_forward = this->pose_yaw;
+
+    this->UpdateFloor(this->pose_x, this->pose_y);
+
+
+}
+
+void WorldModel::UpdateFloor(double x, double y)
+{
+    int c,r;
+    if(!this->PointAtCell(x, y, c, r))return;
+
+    int idx = r * this->map_width + c;
+    if(this->cells_info[idx].floor != FloorType::NONE)
+    this->current_floor = this->cells_info[idx].floor;
 
 
 }
@@ -170,6 +225,10 @@ void WorldModel::UpdateDynamicLayer()
 
         //本身是不可走或未知也continue
         if(this->map_cells[idx] != WorldModel::CELL_FREE) continue;
+
+        //特殊判定 只有在L2的公共区域才进行雷达障碍判定
+        if(this->cells_info[idx].region_type != TeamSide::PUBLIC)continue;
+
         //如果某格周围本身是障碍 那么不需要继续标记了
         if(this->NearOccupied(idx)) continue;
 
@@ -203,6 +262,20 @@ void WorldModel::UpdateDynamicLayer()
         this->dyn_version++;
     }
 
+    //当雷达传感器传入障碍数据 则直接在世界模型中并入真实地图
+    if(changed)
+    {
+        //重置真实地图
+        this->real_cells.assign(90000, WorldModel::CELL_FREE);
+        for(size_t i = 0; i < this->map_cells.size(); i++)
+        {
+            if(this->dyn_cells[i] == 1 || this->map_cells[i] == WorldModel::CELL_OCCUPIED)
+            {
+                this->real_cells[i] = WorldModel::CELL_OCCUPIED;
+            }
+        }
+    }
+
 
 }
 
@@ -232,6 +305,101 @@ bool WorldModel::NearOccupied(int idx)
     }
     return false;
 }
+
+
+
+bool WorldModel::PointAtCell(double x, double y, int& col, int& row)
+{
+
+    col = static_cast<int>(std::floor((x - this->map_origin_x) / this->map_resolution));
+    row = static_cast<int>(std::floor((y - this->map_origin_y) / this->map_resolution));
+    return col >= 0 && col < this->map_width && row >= 0 && row < this->map_height;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+void WorldModel::UpdateSpotInfo(Area spot, BuildState state)
+{
+    bool changed = false;
+    if(this->spot_info.at(spot).build_state != state)
+    {
+        this->spot_info.at(spot).build_state = state;
+        changed = true;
+    }
+
+
+    if(!changed) return;
+
+    std::cout<<"建造点位状态改变: "<<COMDEF::GetAreaName(spot)<<" -> "<<COMDEF::GetBuildStateName(state)<<"\n";
+
+
+    //如果建造点位有变化 更新判断是否满足圣物获取条件
+
+    int excl = 0;
+    int shared = 0;
+
+    for(const auto& [k, k_info] : this->spot_info)
+    {
+        if( k == Area::None         || 
+            k == Area::MustikaArea  || 
+            k == Area::RetryArea    ||
+            k == Area::TransferArea )
+            {
+                continue;
+            }
+        
+        if(k_info.build_state == BuildState::FriendSky)
+        COMDEF::BelongOf(k) == Belonging::Exclusive ? excl++ : shared++;
+
+    }
+
+    if(excl >= 1 && shared >= 1)
+    {
+        this->F_mustika_condition = true;
+    } 
+    else
+    {
+        this->F_mustika_condition = false;
+    }  
+
+}
+
+
+void WorldModel::UpdateTransferInfo(ItemType item, uint8_t num)
+{
+    bool changed = false;
+
+    if(this->transfer_item.at(item) != num)
+    {
+        changed = true;
+        this->transfer_item.at(item) = num;
+    }
+
+    if(!changed) return;
+
+    std::cout<<"交接区改变: "<<COMDEF::GetItemTypeName(item)<<" 数量现在为 "<<static_cast<int>(num)<<"\n";
+
+
+    if(this->transfer_item[ItemType::Mustika] > 0) this->Can_getmustika = true;
+    else this->Can_getmustika = false;
+
+}
+
+
+
+
+
+
+
 
 
 
