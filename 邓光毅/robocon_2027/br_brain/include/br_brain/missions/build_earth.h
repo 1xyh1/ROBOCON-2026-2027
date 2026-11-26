@@ -5,9 +5,8 @@
 class BuildEarth : public Mission
 {
 public:
-    BuildEarth(WorldModel* world_model, SkillLayer* skill_layer);
+    BuildEarth(WorldModel* world_model, SkillLayer* skill_layer, MissionDetails mission_details);
 
-    MissionID GetMissionID() override;
     void Enter() override;
     MissionStatus Execute() override;
     void Stop() override;

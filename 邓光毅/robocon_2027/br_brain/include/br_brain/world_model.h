@@ -3,13 +3,14 @@
 #include <iostream>
 #include <vector>
 #include <cstdint>
+#include <map>
 
-
+#include "br_brain/defs.h"
 
 /*
 暂时准备使用黑板架构 世界模型作为黑板
 满足二点
-1 世界模型只存当前世界各个信息的状态 不做决策 不依赖其他任何头文件
+1 世界模型只存当前世界各个信息的状态 不做决策 不依赖其他任何逻辑有关头文件
 2 每个/些数据有其唯一的写者 所有人都至少可读
 
 
@@ -33,6 +34,16 @@ public:
     WorldModel();
 
     bool safety_flag = true;
+
+
+    //基础配置信息
+    TeamSide team_side = TeamSide::RED; //默认红队
+
+
+
+
+
+
 
     //暂时先大部分设为公有变量 后续再考虑私有化
 
@@ -127,6 +138,13 @@ public:
     static constexpr uint8_t CELL_OCCUPIED = 0;     //墙
     static constexpr uint8_t CELL_FREE     = 254;   //可走
     static constexpr uint8_t CELL_UNKNOWN  = 205;   //未知
+    static constexpr uint8_t CELL_STAIR    = 61;    //阶梯
+    static constexpr uint8_t CELL_RAMP    = 100;   //斜坡
+    static constexpr uint8_t CELL_L0    = 230;   //层
+    static constexpr uint8_t CELL_L1    = 204;   //层
+    static constexpr uint8_t CELL_L2    = 179;   //层
+    static constexpr uint8_t CELL_PUBLIC    = 128;   //公共区域
+    static constexpr uint8_t CELL_NON_PUBLIC = 254;  //非公共区域
 
     int map_width = 0;                      //地图的宽度 列数
     int map_height = 0;                     //地图的高度 行数
@@ -134,10 +152,40 @@ public:
     double map_origin_x = 0.0;              //绝对坐标系下 地图的坐标原点
     double map_origin_y = 0.0;              
     std::vector<uint8_t> map_cells;         //存储每个格子的数据 大小为列*行
+    std::vector<uint8_t> real_cells;         //存储真实情况的数据 即内置地图和雷达扫描的障碍的数据
+
+    std::vector<MapCell> cells_info;        //格子全部的信息
+
+    std::vector<Transition> transitions;    //上下层通道(拓扑图的边) 由配置加载
+
+    FloorType current_floor = FloorType::NONE;   //当前所在楼层
 
 
 
 
+
+
+    //当前场上情况 供任务分配函数读取
+    double race_time_left = 180;        //比赛剩余时间
+    bool field_entered = false;         //BR进入自身场地与否
+    bool F_mustika_condition = false;     //友方圣物放置的条件达成与否
+    bool E_mustika_condition = false;     //敌方圣物放置的条件达成与否
+    bool Can_getmustika = false;
+    //std::vector<BuildSpot> build_spot;
+    std::vector<ItemType> carrying_on;  //带在身上的物块
+    std::map<Area, SpotInfo> spot_info; //建造点位的信息
+    std::map<Area, std::pair<double, double> > area_pose;
+    std::map<ItemType, uint8_t> transfer_item;  //交接区当前有的物块
+
+
+    static constexpr int MAX_CARRYON = 2; 
+    void UpdateSpotInfo(Area spot, BuildState state);
+    void UpdateTransferInfo(ItemType item, uint8_t num);
+    void UpdateFloor(double x, double y);
+
+
+    //根据坐标返回所属格子
+    bool PointAtCell(double x, double y, int& col, int& row);
 
     
     

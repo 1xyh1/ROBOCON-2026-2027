@@ -5,18 +5,22 @@
 //匿名命名空间 仅当前cpp可见
 namespace
 {
-    const char* StateName(MissionID state)
+    const char* StateName(MissionID id)
     {
-        switch(state)
+        switch(id)
         {
             case MissionID::Init: return "Init";
             case MissionID::Idle: return "Idle";
             case MissionID::BuildEarth: return "BuildEarth";
-            case MissionID::CapSky: return "CapSky";
+            case MissionID::BuildSky: return "BuildSky";
             case MissionID::FlipSky: return "FlipSky";
-            case MissionID::PlaceOrb: return "PlaceOrb";
+            case MissionID::Mustika: return "Mustika";
             case MissionID::EnterField: return "EnterField";
             case MissionID::GoRetryField: return "GoRetryField";
+            case MissionID::FetchEarth: return "FetchEarth";
+            case MissionID::FetchSky: return "FetchSky";
+            case MissionID::FetchMustika: return "FetchMustika";
+            case MissionID::Debug : return "Debug";
             
         }
 
@@ -33,7 +37,10 @@ namespace
 
 //初始化 
 ArbitrateLayer::ArbitrateLayer(WorldModel* world_model, MissionCreator mission_creator)
- : world_model(world_model), mission_creator(mission_creator) {}
+ : world_model(world_model), mission_creator(mission_creator)
+{
+    this->mission_strategy = std::make_unique<MissionStrategy>(this->world_model);
+}
 
 
 
@@ -122,6 +129,15 @@ void ArbitrateLayer::ArbitrateUpdate(Event event)
             break;
         }               //此处大括号的目的是单独开一块作用域 防止ms暴露在switch的整个作用域下 从而避免在未初始化时析构释放导致崩溃
 
+
+
+        case MissionID::FetchEarth :
+        case MissionID::FetchSky   :
+        case MissionID::FetchMustika :
+        case MissionID::BuildEarth :
+        case MissionID::BuildSky :
+        case MissionID::FlipSky :
+        case MissionID::Mustika :
         case MissionID::EnterField :
         {
 
@@ -139,7 +155,6 @@ void ArbitrateLayer::ArbitrateUpdate(Event event)
                 this->current_mission.reset();  //释放唯一指针
                 if(mission_status == Mission::MissionStatus::Done)
                 {
-                    this->field_entered = true;
                     this->SetState(MissionID::Idle);
                 }
 
@@ -147,33 +162,48 @@ void ArbitrateLayer::ArbitrateUpdate(Event event)
                 {
                     //任务失败后恢复默认状态
                     this->SetState(MissionID::Idle);
+
+                    //留出任务失败的特殊处理部分
+                    
                 }
 
 
-                break;
+                // break;
             }
 
 
             break;
         }
 
-        case MissionID::BuildEarth :
+
+        //专门用来调试
+        case MissionID::Debug :
+        {
+            Mission::MissionStatus mission_status = this->current_mission->Execute();
+
+            if(mission_status != Mission::MissionStatus::Running)     //在任务执行的同时进行任务执行状态的对齐
+            {
+                this->current_mission->Stop();
+                this->current_mission.reset();  //释放唯一指针
+                if(mission_status == Mission::MissionStatus::Done)
+                {
+                    this->SetState(MissionID::Idle);
+                }
+
+                if(mission_status == Mission::MissionStatus::Failed)
+                {
+                    this->SetState(MissionID::Idle);
+                }
+
+
+            }
+
+
             break;
 
+            
+        }
 
-        case MissionID::CapSky :
-
-            break;
-
-
-        case MissionID::FlipSky :
-
-            break;
-
-
-        case MissionID::PlaceOrb :
-
-            break;
 
     }
 
@@ -189,9 +219,17 @@ void ArbitrateLayer::ArbitrateUpdate(Event event)
 
 
 
-void ArbitrateLayer::EnterMission(MissionID id)
+void ArbitrateLayer::EnterMission(MissionDetails mission_details)
 {
-    std::unique_ptr<Mission> mission = this->mission_creator(id);
+
+    //当进行任务选择时 本身就处于Idle状态 因此不需要改变
+    if(mission_details.mission_id == MissionID::Idle)
+    {
+        //std::cout<<"[仲裁] 无任务 仍然Idle\n";
+        return;
+    }
+
+    std::unique_ptr<Mission> mission = this->mission_creator(mission_details);
     if(!mission)
     {
         std::cout<<"[Err] 任务无法正常分配\n";
@@ -212,6 +250,13 @@ void ArbitrateLayer::EnterMission(MissionID id)
 
 bool ArbitrateLayer::NeedInterrupt()
 {
+    //需要debug调试
+    if(this->debugging && this->current_state != MissionID::Debug)
+    {
+
+        std::cout<<"[Debug] 处于debug模式 将打断其他任务\n";
+        return true;
+    } 
 
 
     return false;
@@ -239,12 +284,42 @@ void ArbitrateLayer::Interrupt()
 
 
 
-MissionID ArbitrateLayer::ChooseMission()
+MissionDetails ArbitrateLayer::ChooseMission()
 {
-    if(this->field_entered == false)
-        return MissionID::EnterField;
+
+    if(this->debugging)
+    {
+        return MissionDetails{MissionID::Debug, {}, {}, {}};
+    }
+
+
+    return this->mission_strategy->ComputeScores_ChooseMission();
 
 
 
-    return MissionID::BuildEarth;
+    // MissionDetails mission_details;
+
+    // //test
+    // mission_details.mission_id = MissionID::BuildEarth;
+    // mission_details.target_area = Area::None;
+    // mission_details.target_x = 0.0;
+    // mission_details.target_y = 4.0;
+
+
+    
+    // if(this->field_entered == false)
+    // {
+    //     mission_details.mission_id = MissionID::EnterField;
+    //     mission_details.target_area = Area::None;
+    //     mission_details.target_x = 2.0;
+    //     mission_details.target_y = -2.0;
+
+    // }
+
+
+
+    
+
+    // return mission_details;
+
 }

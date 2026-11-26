@@ -1,0 +1,10 @@
+#全局配置文件  注明子配置的文件路径
+
+configs:
+  field:  field_config.yaml
+  sensor: sensor_config.yaml
+  map:    ../maps/field.yaml
+  mask1:  ../maps/mask1.pgm
+  mask2:  ../maps/mask2.pgm
+  mask3:  ../maps/mask3.pgm
+

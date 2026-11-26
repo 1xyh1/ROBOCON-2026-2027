@@ -1,0 +1,50 @@
+#场地配置 包括比赛时间 建造点位的信息等
+
+race:
+  time_total: 180.0     #比赛总时长 s
+  team_side:  blue      #比赛队伍
+ 
+
+area_pose:
+  None:                             [0.0, 0.0]
+  RetryArea:                        [2.0, 0.0]
+  TransferArea:                     [2.0, -2.0]
+  L1_North_ExclusiveBuildingArea:   [3.0, -3.0]
+  L1_South_ExclusiveBuildingArea:   [3.0, 3.0]
+  L1_North_SharedBuildingArea:      [1.0, 0.0]
+  L1_South_SharedBuildingArea:      [-1.0, 0.0]
+  L2_Northwest_SharedBuildingArea:  [-2.0, 2.0]
+  L2_Northeast_SharedBuildingArea:  [2.0, 2.0]
+  L2_Southwest_SharedBuildingArea:  [-2.0, -2.0]
+  L2_Southeast_SharedBuildingArea:  [2.0, -2.0]
+  MustikaArea:                      [1.0, 1.0]
+
+
+
+#固定的上下层拓扑  就是全局规划用的那张图
+#每条通道都双向可走 执行时按 kind + 方向选不同动作
+transitions:
+  - id: 1                  # 北楼梯  L1 <-> L2
+    kind: stair
+    lower: L1
+    upper: L2
+    lower_pose: [0.0, 1.70]    # 从 L1 侧接近的点
+    upper_pose: [0.0, 1.30]    # 从 L2 侧接近的点
+  - id: 2                  # 南楼梯  L1 <-> L2
+    kind: stair
+    lower: L1
+    upper: L2
+    lower_pose: [0.0, -1.70]
+    upper_pose: [0.0, -1.30]
+  - id: 3                  # 北斜坡  L0 <-> L1
+    kind: ramp
+    lower: L0
+    upper: L1
+    lower_pose: [-2.90, 3.50]  # 西侧是 L0
+    upper_pose: [1.10, 3.50]   # 东侧是 L1
+  - id: 4                  # 南斜坡  L0 <-> L1
+    kind: ramp
+    lower: L0
+    upper: L1
+    lower_pose: [-2.90, -3.50]
+    upper_pose: [1.10, -3.50]

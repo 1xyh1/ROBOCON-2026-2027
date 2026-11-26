@@ -3,12 +3,11 @@
 #include <memory>
 #include <functional>
 
-//引入领域词汇
-#include "br_brain/common_defs.h"
 
 
 #include "br_brain/world_model.h"
 #include "br_brain/missions/mission_base.h"
+#include "br_brain/mission_strategy.h"
 
 
 /*
@@ -44,7 +43,7 @@
 
 */
 
-using MissionCreator = std::function<std::unique_ptr<Mission>(MissionID)>;
+using MissionCreator = std::function<std::unique_ptr<Mission>(MissionDetails)>;
 
 
 
@@ -58,16 +57,18 @@ public:
 
 private:
 
-    MissionID ChooseMission();                      //任务的分配 与当前的得分策略有关
+    MissionDetails ChooseMission();                      //任务的分配 与当前的得分策略有关
     bool NeedInterrupt();                           //判断任务是否需要强制中断
     void Interrupt();                               //执行强制中断
-    void EnterMission(MissionID id);                //任务分配
+    void EnterMission(MissionDetails mission_details);                //任务分配
     void SetState(MissionID state);                 //将切换运行状态封装为一个函数 便于输出日志
 
 
 private:
 
     WorldModel* world_model = nullptr;
+
+    std::unique_ptr<MissionStrategy> mission_strategy = nullptr;
     MissionCreator mission_creator;
 
     std::unique_ptr<Mission> current_mission = nullptr;
@@ -79,7 +80,7 @@ private:
 
 
     bool match_over = false;
-    bool field_entered = false;
+    bool debugging = false;
 
 
 };
